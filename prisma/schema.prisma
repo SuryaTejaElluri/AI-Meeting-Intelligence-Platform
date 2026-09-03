@@ -1,0 +1,96 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String    @id @default(uuid())
+  name      String
+  email     String    @unique
+  password  String
+  createdAt DateTime  @default(now())
+  meetings  Meeting[]
+}
+
+model Meeting {
+  id           String        @id @default(uuid())
+  userId       String
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title        String
+  fileUrl      String
+  fileType     String        // audio/mp3, video/mp4, etc.
+  fileSize     Int
+  duration     Float         @default(0)
+  status       String        // UPLOADING, PROCESSING, COMPLETED, FAILED
+  errorMessage String?
+  createdAt    DateTime      @default(now())
+  
+  transcripts  Transcript[]
+  summary      Summary?
+  actionItems  ActionItem[]
+  decisions    Decision[]
+  topics       Topic[]
+  chats        MeetingChat[]
+}
+
+model Transcript {
+  id        String   @id @default(uuid())
+  meetingId String   @unique
+  meeting   Meeting  @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  content   String   // Full raw text transcript
+  segments  String   // JSON string of [{start, end, speaker, text}]
+  createdAt DateTime @default(now())
+}
+
+model Summary {
+  id               String   @id @default(uuid())
+  meetingId        String   @unique
+  meeting          Meeting  @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  overview         String
+  keyDiscussionPts String   // JSON array of strings
+  participants     String   // JSON array of participant names
+  createdAt        DateTime @default(now())
+}
+
+model ActionItem {
+  id                String   @id @default(uuid())
+  meetingId         String
+  meeting           Meeting  @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  description       String
+  responsiblePerson String?
+  deadline          String?
+  status            String   @default("PENDING") // PENDING, IN_PROGRESS, COMPLETED
+  createdAt         DateTime @default(now())
+}
+
+model Decision {
+  id          String   @id @default(uuid())
+  meetingId   String
+  meeting     Meeting  @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  description String
+  category    String?
+  createdAt   DateTime @default(now())
+}
+
+model Topic {
+  id          String   @id @default(uuid())
+  meetingId   String
+  meeting     Meeting  @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  name        String
+  summary     String?
+  timestamp   String?
+  createdAt   DateTime @default(now())
+}
+
+model MeetingChat {
+  id           String   @id @default(uuid())
+  meetingId    String
+  meeting      Meeting  @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  userQuestion  String
+  aiResponse   String
+  createdAt    DateTime @default(now())
+}

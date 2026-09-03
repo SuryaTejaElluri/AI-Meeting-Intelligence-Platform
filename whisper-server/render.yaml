@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: whisper-small-service
+    env: docker
+    dockerfilePath: ./whisper-server/Dockerfile
+    dockerContext: ./whisper-server
+    plan: free
+    region: singapore
+    autoDeploy: true
+    healthCheckPath: /health
