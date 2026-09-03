@@ -14,18 +14,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# Copy and install requirements
-COPY requirements.txt .
+# Copy requirements from whisper-server directory (root context compatible)
+COPY whisper-server/requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt imageio-ffmpeg
 
 # Pre-download Whisper Small model weights during build for instant container startup
 RUN python -c "import whisper; whisper.load_model('small')"
 
-# Copy server application code
-COPY . .
+# Copy remaining whisper-server code
+COPY whisper-server/ .
 
 # Expose port 8100
 EXPOSE 8100
 
-# Start FastAPI server with uvicorn (reads PORT env var or defaults to 8100)
+# Start FastAPI server with uvicorn
 CMD ["sh", "-c", "uvicorn server:app --host 0.0.0.0 --port ${PORT:-8100}"]
