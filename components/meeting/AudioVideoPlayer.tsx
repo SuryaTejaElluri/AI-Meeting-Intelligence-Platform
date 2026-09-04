@@ -20,6 +20,11 @@ export default function AudioVideoPlayer({
   const [isPlaying, setIsPlaying] = useState(false);
   const [duration, setDuration] = useState(0);
   const [isMuted, setIsMuted] = useState(false);
+  // Resolve fileUrl through API route if stored as /uploads/ for Vercel serverless compatibility
+  const resolvedMediaUrl = fileUrl.startsWith('/uploads/')
+    ? `/api/media/${fileUrl.replace('/uploads/', '')}`
+    : fileUrl;
+
   const isVideo = fileType.includes('video') || fileUrl.endsWith('.mp4') || fileUrl.endsWith('.webm');
 
   // Handle external seek requests from interactive transcript line clicks
@@ -76,7 +81,7 @@ export default function AudioVideoPlayer({
         <div className="w-full aspect-video rounded-xl bg-slate-950 overflow-hidden relative border border-slate-800">
           <video
             ref={mediaRef as React.RefObject<HTMLVideoElement>}
-            src={fileUrl}
+            src={resolvedMediaUrl}
             onTimeUpdate={() => onTimeUpdate(mediaRef.current?.currentTime || 0)}
             onLoadedMetadata={() => setDuration(mediaRef.current?.duration || 0)}
             onEnded={() => setIsPlaying(false)}
@@ -86,7 +91,7 @@ export default function AudioVideoPlayer({
       ) : (
         <audio
           ref={mediaRef as React.RefObject<HTMLAudioElement>}
-          src={fileUrl}
+          src={resolvedMediaUrl}
           onTimeUpdate={() => onTimeUpdate(mediaRef.current?.currentTime || 0)}
           onLoadedMetadata={() => setDuration(mediaRef.current?.duration || 0)}
           onEnded={() => setIsPlaying(false)}
