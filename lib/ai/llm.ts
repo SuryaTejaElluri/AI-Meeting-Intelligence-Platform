@@ -13,13 +13,51 @@ export interface MeetingAnalysisResult {
  * Run LLM inference using Gemini Pro API (primary) or local Open-Source LLM (fallback).
  */
 export async function runLLMInference(prompt: string): Promise<string> {
-  const geminiApiKey = process.env.GEMINI_API_KEY?.trim();
-  const primaryModel = process.env.GEMINI_MODEL || 'gemini-3.6-flash';
-  const candidateModels = Array.from(new Set([primaryModel, 'gemini-1.5-flash', 'gemini-1.5-pro']));
+  // ──── 1. PRIMARY: Groq Cloud LLM API (Ultra-fast 0.2s response, FREE) ────
+  const groqApiKey = process.env.GROQ_API_KEY?.trim();
+  if (groqApiKey) {
+    const groqModels = ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant', 'mixtral-8x7b-32768'];
+    for (const model of groqModels) {
+      try {
+        console.log(`[AI LLM Engine] Calling Groq Cloud LLM '${model}'...`);
+        const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${groqApiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model,
+            messages: [
+              { role: 'system', content: 'You are an expert AI meeting assistant. Answer accurately based on the transcript provided.' },
+              { role: 'user', content: prompt },
+            ],
+            temperature: 0.2,
+          }),
+        });
 
-  // Primary & Fallbacks: Google Gemini API
+        if (res.ok) {
+          const data = await res.json();
+          const text = data.choices?.[0]?.message?.content;
+          if (text) {
+            console.log(`[AI LLM Engine] ✅ Response received from Groq '${model}'`);
+            return text;
+          }
+        } else {
+          const errBody = await res.text();
+          console.warn(`[AI LLM Engine] Groq '${model}' returned ${res.status}: ${errBody}`);
+        }
+      } catch (err: any) {
+        console.warn(`[AI LLM Engine] Groq '${model}' error: ${err?.message || err}`);
+      }
+    }
+  }
+
+  // ──── 2. SECONDARY: Google Gemini API ────
+  const geminiApiKey = process.env.GEMINI_API_KEY?.trim();
   if (geminiApiKey) {
     const genAI = new GoogleGenerativeAI(geminiApiKey);
+    const candidateModels = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro'];
     for (const modelName of candidateModels) {
       try {
         console.log(`[AI LLM Engine] Calling Gemini '${modelName}'...`);
@@ -37,7 +75,7 @@ export async function runLLMInference(prompt: string): Promise<string> {
     }
   }
 
-  // Fallback: Local Open-Source LLM (Ollama / Groq API)
+  // ──── 3. TERTIARY: Local Open-Source LLM (Ollama) ────
   const llmUrl = process.env.OPEN_SOURCE_LLM_URL || 'http://localhost:11434/api/generate';
   const openSourceModel = process.env.OPEN_SOURCE_LLM_MODEL || 'llama3';
 
@@ -239,7 +277,29 @@ export async function askMeetingQuestion(transcriptText: string, question: strin
     return response.trim();
   }
 
-  return 'Based on the transcript context, the team discussed technical inquiries and support requirements. Please check your transcript details for more specific information.';
+  // Smart Context Fallback: Extract relevant sentences from transcript directly matching user question keywords
+  if (transcriptText) {
+    const lines = transcriptText.split('\n').map((l) => l.trim()).filter(Boolean);
+    const stopWords = new Set(['what', 'is', 'the', 'are', 'who', 'how', 'where', 'when', 'this', 'that', 'with', 'from', 'about', 'some', 'tell', 'show']);
+    const keywords = question
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, '')
+      .split(/\s+/)
+      .filter((w) => w.length > 1 && !stopWords.has(w));
+
+    const matchingLines = lines.filter((line) => {
+      const lower = line.toLowerCase();
+      return keywords.some((kw) => lower.includes(kw));
+    });
+
+    if (matchingLines.length > 0) {
+      return `Based on the meeting transcript:\n\n${matchingLines.slice(0, 4).map((l) => `• ${l}`).join('\n')}`;
+    }
+
+    return `Based on the transcript context:\n\n${lines.slice(0, 3).map((l) => `• ${l}`).join('\n')}`;
+  }
+
+  return 'No transcript content available for this meeting.';
 }
 
 /**
