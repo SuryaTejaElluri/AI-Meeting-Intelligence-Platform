@@ -8,12 +8,16 @@ import {
   CheckSquare,
   Scale,
   FileText,
-  Clock,
   ArrowRight,
   Sparkles,
   Plus,
   Loader2,
   Calendar,
+  LayoutGrid,
+  TrendingUp,
+  Brain,
+  Clock,
+  Filter,
 } from 'lucide-react';
 
 export default function DashboardPage() {
@@ -24,10 +28,9 @@ export default function DashboardPage() {
     transcripts: any[];
     actionItems: any[];
   } | null>(null);
+  const [searchLoading, setSearchLoading] = useState(false);
 
-  useEffect(() => {
-    fetchMeetings();
-  }, []);
+  useEffect(() => { fetchMeetings(); }, []);
 
   const fetchMeetings = async () => {
     try {
@@ -45,150 +48,196 @@ export default function DashboardPage() {
 
   const handleSearch = async (query: string) => {
     setSearchQuery(query);
-    if (!query.trim()) {
-      setSearchResults(null);
-      return;
-    }
-
+    if (!query.trim()) { setSearchResults(null); return; }
+    setSearchLoading(true);
     try {
       const res = await fetch(`/api/search?q=${encodeURIComponent(query)}`);
       if (res.ok) {
         const data = await res.json();
-        setSearchResults({
-          transcripts: data.transcripts || [],
-          actionItems: data.actionItems || [],
-        });
+        setSearchResults({ transcripts: data.transcripts || [], actionItems: data.actionItems || [] });
       }
     } catch (err) {
       console.error(err);
+    } finally {
+      setSearchLoading(false);
     }
   };
 
-  // Metrics computation
   const totalMeetings = meetings.length;
   const totalActionItems = meetings.reduce((acc, m) => acc + (m.actionItems?.length || 0), 0);
   const totalDecisions = meetings.reduce((acc, m) => acc + (m.decisions?.length || 0), 0);
+  const completedMeetings = meetings.filter(m => m.status === 'COMPLETED').length;
+
+  const stats = [
+    {
+      icon: <Mic className="w-5 h-5 text-indigo-400" />,
+      bg: 'bg-indigo-500/10',
+      border: 'border-indigo-500/20',
+      title: 'Total Meetings',
+      value: totalMeetings,
+      sub: `${completedMeetings} processed`,
+      trend: '+12%',
+    },
+    {
+      icon: <CheckSquare className="w-5 h-5 text-emerald-400" />,
+      bg: 'bg-emerald-500/10',
+      border: 'border-emerald-500/20',
+      title: 'Action Items',
+      value: totalActionItems,
+      sub: 'tracked & assigned',
+      trend: '+8%',
+    },
+    {
+      icon: <Scale className="w-5 h-5 text-amber-400" />,
+      bg: 'bg-amber-500/10',
+      border: 'border-amber-500/20',
+      title: 'Key Decisions',
+      value: totalDecisions,
+      sub: 'identified by AI',
+      trend: '+5%',
+    },
+    {
+      icon: <Brain className="w-5 h-5 text-purple-400" />,
+      bg: 'bg-purple-500/10',
+      border: 'border-purple-500/20',
+      title: 'AI Summaries',
+      value: completedMeetings,
+      sub: 'generated',
+      trend: '+15%',
+    },
+  ];
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 space-y-8">
-      {/* Top Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      {/* ── Header ── */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 animate-fadeInUp">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-extrabold font-heading text-white">
-            Meeting Intelligence Dashboard
+          <div className="flex items-center gap-2 mb-1">
+            <LayoutGrid className="w-4 h-4 text-indigo-400" />
+            <span className="text-xs font-mono text-indigo-400 uppercase tracking-wider">Dashboard</span>
+          </div>
+          <h1 className="text-2xl sm:text-3xl font-extrabold font-heading text-white tracking-tight">
+            Meeting Intelligence
           </h1>
-          <p className="text-xs sm:text-sm text-slate-400 mt-1">
-            Review transcripts, track assigned action items, and query meeting knowledge with AI.
+          <p className="text-sm text-slate-400 mt-1">
+            Review transcripts, track action items, and query meeting knowledge with AI.
           </p>
         </div>
-
         <Link
           href="/upload"
-          className="px-5 py-3 rounded-xl font-semibold text-xs bg-gradient-to-r from-indigo-600 to-purple-600 text-white hover:opacity-95 shadow-lg shadow-indigo-500/20 flex items-center justify-center gap-2 shrink-0"
+          className="btn-primary text-xs shrink-0"
+          id="dashboard-upload-btn"
         >
           <Plus className="w-4 h-4" />
-          Upload New Recording
+          New Recording
         </Link>
       </div>
 
-      {/* Metric Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
-        <StatCard
-          icon={<Mic className="w-5 h-5 text-indigo-400" />}
-          title="Total Meetings"
-          value={totalMeetings.toString()}
-          subtitle="Processed via Whisper Small"
-        />
-        <StatCard
-          icon={<CheckSquare className="w-5 h-5 text-emerald-400" />}
-          title="Action Items Tracked"
-          value={totalActionItems.toString()}
-          subtitle="Assigned to responsible persons"
-        />
-        <StatCard
-          icon={<Scale className="w-5 h-5 text-amber-400" />}
-          title="Key Decisions"
-          value={totalDecisions.toString()}
-          subtitle="Identified across meetings"
-        />
+      {/* ── Stats ── */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 animate-fadeInUp delay-100">
+        {stats.map(({ icon, bg, border, title, value, sub, trend }, i) => (
+          <div key={title} className={`glass-card rounded-2xl p-5 border ${border}`}>
+            <div className={`inline-flex p-2.5 rounded-xl ${bg} border ${border} mb-3`}>{icon}</div>
+            <div className="text-2xl font-extrabold font-heading text-white">{value}</div>
+            <div className="text-xs font-medium text-slate-400 mt-0.5">{title}</div>
+            <div className="text-[10px] text-slate-600 font-mono mt-0.5">{sub}</div>
+          </div>
+        ))}
       </div>
 
-      {/* Global Search Bar */}
-      <div className="glass-panel p-4 rounded-2xl border border-slate-800 space-y-4">
+      {/* ── Search ── */}
+      <div className="glass-card rounded-2xl border border-white/[0.06] p-5 space-y-4 animate-fadeInUp delay-200">
         <div className="relative">
-          <Search className="w-5 h-5 text-slate-400 absolute left-4 top-3.5" />
+          {searchLoading ? (
+            <Loader2 className="w-4 h-4 text-indigo-400 absolute left-4 top-1/2 -translate-y-1/2 animate-spin" />
+          ) : (
+            <Search className="w-4 h-4 text-slate-500 absolute left-4 top-1/2 -translate-y-1/2" />
+          )}
           <input
+            id="dashboard-search"
             type="text"
             placeholder="Search transcripts, topics, tasks, decisions..."
             value={searchQuery}
             onChange={(e) => handleSearch(e.target.value)}
-            className="w-full pl-12 pr-4 py-3 rounded-xl bg-slate-900 border border-slate-800 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+            className="input-field pl-11 py-3.5"
           />
+          {searchQuery && (
+            <button
+              onClick={() => handleSearch('')}
+              className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 text-xs"
+            >
+              ✕
+            </button>
+          )}
         </div>
 
-        {/* Search Results Drawer */}
+        {/* Search Results */}
         {searchResults && (
-          <div className="space-y-4 pt-2 border-t border-slate-800">
-            <h3 className="text-xs font-bold text-indigo-400 uppercase tracking-wider">
-              Search Results ({searchResults.transcripts.length + searchResults.actionItems.length})
-            </h3>
-
+          <div className="space-y-3 pt-2 border-t border-white/[0.04]">
+            <div className="flex items-center justify-between">
+              <h3 className="text-xs font-bold text-indigo-400 uppercase tracking-wider font-mono">
+                {searchResults.transcripts.length + searchResults.actionItems.length} Results
+              </h3>
+            </div>
             {searchResults.actionItems.length > 0 && (
               <div className="space-y-2">
-                <p className="text-xs font-semibold text-slate-300">Matching Action Items:</p>
+                <p className="text-xs font-semibold text-slate-400">Matching Action Items</p>
                 {searchResults.actionItems.map((item, idx) => (
-                  <div
-                    key={idx}
-                    className="p-3 rounded-xl bg-slate-900 border border-slate-800 text-xs flex justify-between items-center"
-                  >
+                  <div key={idx} className="flex items-center justify-between p-3 rounded-xl bg-white/[0.03] border border-white/[0.05]">
                     <div>
-                      <p className="text-slate-200">{item.description}</p>
+                      <p className="text-sm text-slate-200">{item.description}</p>
                       <p className="text-[10px] text-indigo-400 font-mono mt-0.5">
-                        Owner: {item.responsiblePerson || 'Unassigned'} • Meeting: {item.meeting?.title}
+                        {item.responsiblePerson || 'Unassigned'} · {item.meeting?.title}
                       </p>
                     </div>
-                    <Link
-                      href={`/meetings/${item.meetingId}`}
-                      className="text-xs text-indigo-400 hover:underline"
-                    >
-                      View →
+                    <Link href={`/meetings/${item.meetingId}`} className="text-xs text-indigo-400 hover:text-indigo-300 flex items-center gap-1">
+                      View <ArrowRight className="w-3 h-3" />
                     </Link>
                   </div>
                 ))}
               </div>
             )}
+            {searchResults.transcripts.length === 0 && searchResults.actionItems.length === 0 && (
+              <p className="text-sm text-slate-500 text-center py-4">No results found for &quot;{searchQuery}&quot;</p>
+            )}
           </div>
         )}
       </div>
 
-      {/* Recent Meetings Grid */}
-      <div className="space-y-4">
-        <h2 className="text-lg font-bold font-heading text-white flex items-center gap-2">
-          <FileText className="w-5 h-5 text-indigo-400" />
-          Recent Meetings
-        </h2>
+      {/* ── Meetings Grid ── */}
+      <div className="space-y-4 animate-fadeInUp delay-300">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-bold font-heading text-white flex items-center gap-2">
+            <FileText className="w-5 h-5 text-indigo-400" />
+            Recent Meetings
+          </h2>
+          <span className="text-xs text-slate-500 font-mono">{meetings.length} total</span>
+        </div>
 
         {loading ? (
-          <div className="py-16 text-center text-xs text-indigo-400 font-mono flex items-center justify-center gap-2">
-            <Loader2 className="w-5 h-5 animate-spin" />
-            Loading meeting records...
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="glass-card rounded-2xl p-5 space-y-3">
+                <div className="shimmer h-4 w-24 rounded-lg" />
+                <div className="shimmer h-5 w-3/4 rounded-lg" />
+                <div className="shimmer h-12 rounded-lg" />
+                <div className="shimmer h-8 rounded-lg" />
+              </div>
+            ))}
           </div>
         ) : meetings.length === 0 ? (
-          <div className="glass-panel p-12 rounded-2xl border border-slate-800 text-center space-y-4">
-            <div className="p-4 rounded-full bg-indigo-500/10 text-indigo-400 w-16 h-16 mx-auto flex items-center justify-center">
-              <Mic className="w-8 h-8" />
+          <div className="glass-card rounded-2xl border border-white/[0.06] py-20 text-center space-y-5">
+            <div className="inline-flex p-5 rounded-2xl bg-indigo-500/10 border border-indigo-500/20">
+              <Mic className="w-10 h-10 text-indigo-400 animate-float" />
             </div>
             <div>
-              <h3 className="text-base font-bold text-white">No Meeting Recordings Uploaded Yet</h3>
-              <p className="text-xs text-slate-400 max-w-sm mx-auto mt-1">
-                Upload your first audio or video recording to test speech-to-text transcription and open-source AI analysis.
+              <h3 className="text-lg font-bold text-white font-heading">No Meetings Yet</h3>
+              <p className="text-sm text-slate-400 max-w-sm mx-auto mt-2 leading-relaxed">
+                Upload your first audio or video recording to start extracting AI-powered meeting intelligence.
               </p>
             </div>
-            <Link
-              href="/upload"
-              className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl text-xs font-semibold bg-indigo-600 text-white hover:bg-indigo-500 shadow-md shadow-indigo-500/20"
-            >
-              Upload First Meeting
+            <Link href="/upload" className="btn-primary inline-flex text-sm" id="empty-upload-btn">
+              <Plus className="w-4 h-4" /> Upload First Meeting
             </Link>
           </div>
         ) : (
@@ -203,76 +252,67 @@ export default function DashboardPage() {
   );
 }
 
-function StatCard({
-  icon,
-  title,
-  value,
-  subtitle,
-}: {
-  icon: React.ReactNode;
-  title: string;
-  value: string;
-  subtitle: string;
-}) {
-  return (
-    <div className="glass-panel p-5 rounded-2xl border border-slate-800 flex items-center gap-4">
-      <div className="p-3 rounded-xl bg-slate-900 border border-slate-800">{icon}</div>
-      <div>
-        <p className="text-xs font-medium text-slate-400">{title}</p>
-        <p className="text-2xl font-extrabold font-heading text-white">{value}</p>
-        <p className="text-[10px] text-slate-500 font-mono mt-0.5">{subtitle}</p>
-      </div>
-    </div>
-  );
-}
-
 function MeetingCard({ meeting }: { meeting: any }) {
   const isCompleted = meeting.status === 'COMPLETED';
+  const isProcessing = meeting.status === 'PROCESSING';
+
+  const statusBadge = isCompleted
+    ? 'badge badge-emerald'
+    : isProcessing
+    ? 'badge badge-indigo'
+    : 'badge badge-red';
 
   return (
-    <div className="glass-panel glass-panel-hover p-5 rounded-2xl border border-slate-800 flex flex-col justify-between space-y-4">
+    <div className="group glass-card rounded-2xl border border-white/[0.06] hover:border-indigo-500/25 p-5 flex flex-col justify-between gap-4 transition-all duration-300">
       <div>
-        <div className="flex items-center justify-between gap-2 mb-2">
-          <span
-            className={`text-[10px] font-mono font-semibold px-2.5 py-0.5 rounded-full border ${
-              isCompleted
-                ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
-                : meeting.status === 'PROCESSING'
-                ? 'bg-indigo-500/10 text-indigo-400 border-indigo-500/30'
-                : 'bg-red-500/10 text-red-400 border-red-500/30'
-            }`}
-          >
+        {/* Status row */}
+        <div className="flex items-center justify-between mb-3">
+          <span className={statusBadge}>
+            {isProcessing && <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse" />}
+            {isCompleted && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />}
             {meeting.status}
           </span>
-          <span className="text-[11px] font-mono text-slate-500 flex items-center gap-1">
+          <span className="flex items-center gap-1 text-[11px] font-mono text-slate-500">
             <Calendar className="w-3 h-3" />
-            {new Date(meeting.createdAt).toLocaleDateString()}
+            {new Date(meeting.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
           </span>
         </div>
 
-        <h3 className="text-base font-bold font-heading text-white line-clamp-1">{meeting.title}</h3>
+        {/* Title */}
+        <h3 className="text-base font-bold font-heading text-white line-clamp-1 group-hover:text-indigo-200 transition-colors">
+          {meeting.title}
+        </h3>
 
+        {/* Summary */}
         {meeting.summary?.overview ? (
-          <p className="text-xs text-slate-400 mt-2 line-clamp-2 leading-relaxed">
+          <p className="text-sm text-slate-400 mt-2 line-clamp-2 leading-relaxed">
             {meeting.summary.overview}
           </p>
         ) : (
-          <p className="text-xs text-slate-500 italic mt-2">Processing transcription & summary...</p>
+          <div className="mt-2 flex items-center gap-2 text-xs text-slate-500 italic">
+            {isProcessing && <Loader2 className="w-3 h-3 animate-spin text-indigo-400" />}
+            {isProcessing ? 'Processing transcription & AI analysis...' : 'No summary available'}
+          </div>
         )}
       </div>
 
-      <div className="pt-3 border-t border-slate-800/80 flex items-center justify-between">
-        <div className="flex items-center gap-3 text-xs text-slate-400 font-mono">
-          <span>{meeting.actionItems?.length || 0} Tasks</span>
-          <span>•</span>
-          <span>{meeting.decisions?.length || 0} Decisions</span>
+      <div className="pt-4 border-t border-white/[0.04] flex items-center justify-between">
+        <div className="flex items-center gap-3 text-[11px] text-slate-500 font-mono">
+          <span className="flex items-center gap-1">
+            <CheckSquare className="w-3 h-3 text-emerald-500" />
+            {meeting.actionItems?.length || 0} Tasks
+          </span>
+          <span>·</span>
+          <span className="flex items-center gap-1">
+            <Scale className="w-3 h-3 text-amber-500" />
+            {meeting.decisions?.length || 0} Decisions
+          </span>
         </div>
-
         <Link
           href={`/meetings/${meeting.id}`}
-          className="text-xs font-semibold text-indigo-400 hover:text-indigo-300 flex items-center gap-1"
+          className="flex items-center gap-1 text-xs font-semibold text-indigo-400 hover:text-indigo-300 group-hover:gap-1.5 transition-all"
         >
-          View Workspace <ArrowRight className="w-3.5 h-3.5" />
+          Open <ArrowRight className="w-3.5 h-3.5" />
         </Link>
       </div>
     </div>
