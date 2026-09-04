@@ -1,8 +1,9 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { TranscriptSegment } from '../types';
-import { readFile } from 'fs/promises';
+import { readFile, writeFile, mkdir } from 'fs/promises';
 import path from 'path';
 import fs from 'fs';
+import { prisma } from '@/lib/prisma';
 
 /**
  * Speech-to-Text Pipeline:
@@ -18,19 +19,36 @@ export async function transcribeAudioWithWhisperSmall(
   fileType: string
 ): Promise<{ content: string; segments: TranscriptSegment[]; duration: number }> {
 
-  // Resolve the absolute file path (supports public/uploads locally & /tmp/uploads on Vercel)
+  // Resolve the absolute file path
+  // Priority: /tmp/uploads (Vercel serverless) → public/uploads (local dev) → Postgres DB backup
   const filename = path.basename(fileUrl);
-  let absolutePath = path.join(process.cwd(), 'public', 'uploads', filename);
+  const tmpPath = path.join(path.sep, 'tmp', 'uploads', filename);
+  const publicPath = path.join(process.cwd(), 'public', 'uploads', filename);
 
-  if (!fs.existsSync(absolutePath)) {
-    const tmpPath = path.join(path.sep, 'tmp', 'uploads', filename);
-    if (fs.existsSync(tmpPath)) {
+  let absolutePath: string;
+  if (fs.existsSync(tmpPath)) {
+    absolutePath = tmpPath;
+  } else if (fs.existsSync(publicPath)) {
+    absolutePath = publicPath;
+  } else {
+    // Vercel serverless instances are stateless. If missing from disk, restore from DB!
+    console.log(`[Whisper STT] File missing on serverless disk. Restoring "${filename}" from PostgreSQL...`);
+    const meeting = await prisma.meeting.findFirst({
+      where: { fileUrl },
+      include: { audio: true },
+    });
+
+    if (meeting?.audio?.audioData) {
+      const tmpDir = path.join(path.sep, 'tmp', 'uploads');
+      await mkdir(tmpDir, { recursive: true });
+      await writeFile(tmpPath, meeting.audio.audioData);
       absolutePath = tmpPath;
+      console.log(`[Whisper STT] ✅ Successfully restored audio file to "${tmpPath}" from database!`);
+    } else {
+      throw new Error(
+        `Audio file "${filename}" not found in database or disk storage. Please re-upload the recording.`
+      );
     }
-  }
-
-  if (!fs.existsSync(absolutePath)) {
-    throw new Error(`Audio file not found at ${absolutePath}. Please re-upload the recording file.`);
   }
 
   const groqApiKey = process.env.GROQ_API_KEY?.trim();

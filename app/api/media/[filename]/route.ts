@@ -14,19 +14,31 @@ export async function GET(req: Request, { params }: { params: { filename: string
 
     // Check local public/uploads directory first, then /tmp/uploads on Vercel
     let filePath = path.join(process.cwd(), 'public', 'uploads', filename);
-    if (!fs.existsSync(filePath)) {
+    let fileBuffer: Buffer | null = null;
+
+    if (fs.existsSync(filePath)) {
+      fileBuffer = await readFile(filePath);
+    } else {
       const tmpPath = path.join(path.sep, 'tmp', 'uploads', filename);
       if (fs.existsSync(tmpPath)) {
-        filePath = tmpPath;
+        fileBuffer = await readFile(tmpPath);
+      } else {
+        // Fallback: load audio from PostgreSQL database
+        const { prisma } = await import('@/lib/prisma');
+        const meeting = await prisma.meeting.findFirst({
+          where: { fileUrl: { endsWith: filename } },
+          include: { audio: true },
+        });
+        if (meeting?.audio?.audioData) {
+          fileBuffer = meeting.audio.audioData;
+        }
       }
     }
 
-    if (!fs.existsSync(filePath)) {
-      console.warn(`[Media Route] File not found: ${filename}`);
+    if (!fileBuffer) {
+      console.warn(`[Media Route] File not found on disk or database: ${filename}`);
       return new NextResponse('Media file not found', { status: 404 });
     }
-
-    const fileBuffer = await readFile(filePath);
     const ext = path.extname(filename).toLowerCase();
     
     const mimeMap: Record<string, string> = {
@@ -40,7 +52,7 @@ export async function GET(req: Request, { params }: { params: { filename: string
     };
     const mimeType = mimeMap[ext] || 'audio/mpeg';
 
-    return new NextResponse(fileBuffer, {
+    return new NextResponse(new Uint8Array(fileBuffer), {
       status: 200,
       headers: {
         'Content-Type': mimeType,

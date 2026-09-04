@@ -39,6 +39,35 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    const contentType = req.headers.get('content-type') || '';
+
+    // ──── 1. JSON Payload: Initialize Chunked Upload ────
+    if (contentType.includes('application/json')) {
+      const body = await req.json();
+      const { title, fileName, fileSize, fileType } = body;
+
+      if (!fileName || !fileSize) {
+        return NextResponse.json({ error: 'fileName and fileSize are required' }, { status: 400 });
+      }
+
+      const cleanTitle = title || fileName.replace(/\.[^/.]+$/, '');
+      const cleanFileName = `${Date.now()}-${fileName.replace(/\s+/g, '_')}`;
+
+      const meeting = await prisma.meeting.create({
+        data: {
+          userId: session.userId,
+          title: cleanTitle,
+          fileUrl: `/uploads/${cleanFileName}`,
+          fileType: fileType || 'audio/mp3',
+          fileSize: Number(fileSize),
+          status: 'UPLOADING',
+        },
+      });
+
+      return NextResponse.json({ meeting });
+    }
+
+    // ──── 2. FormData Payload: Single Request Upload (<4MB) ────
     const formData = await req.formData();
     const file = formData.get('file') as File | null;
     const titleInput = formData.get('title') as string | null;
@@ -53,18 +82,18 @@ export async function POST(req: Request) {
 
     const fileName = `${Date.now()}-${file.name.replace(/\s+/g, '_')}`;
 
-    // Determine upload directory: /tmp on Vercel serverless, public/uploads locally
-    const isVercel = process.env.VERCEL === '1' || Boolean(process.env.VERCEL_ENV);
+    const isVercel = !!(process.env.VERCEL || process.env.VERCEL_ENV || process.env.VERCEL_URL);
     const uploadsDir = isVercel
       ? path.join(path.sep, 'tmp', 'uploads')
       : path.join(process.cwd(), 'public', 'uploads');
 
     try {
       await mkdir(uploadsDir, { recursive: true });
-    } catch {}
-
-    const filePath = path.join(uploadsDir, fileName);
-    await writeFile(filePath, buffer);
+      const filePath = path.join(uploadsDir, fileName);
+      await writeFile(filePath, buffer);
+    } catch (e) {
+      console.log('[Meetings POST] Read-only filesystem, saving to database only');
+    }
 
     const fileUrl = `/uploads/${fileName}`;
 
@@ -79,9 +108,16 @@ export async function POST(req: Request) {
       },
     });
 
+    // Store in Postgres DB as well so Vercel stateless function can retrieve it
+    await prisma.meetingAudio.upsert({
+      where: { meetingId: meeting.id },
+      create: { meetingId: meeting.id, audioData: buffer },
+      update: { audioData: buffer },
+    });
+
     return NextResponse.json({ meeting, message: 'File uploaded and processing initiated' });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Meeting Upload Error:', error);
-    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+    return NextResponse.json({ error: error.message || 'Internal Server Error' }, { status: 500 });
   }
 }

@@ -82,44 +82,75 @@ export default function FileUploader() {
     if (!selectedFile) return;
 
     setUploading(true);
-    setUploadProgress(10);
-    setStatusMessage('Uploading recording file...');
+    setUploadProgress(5);
+    setStatusMessage('Initializing file upload...');
     setErrorMessage('');
 
     try {
-      const formData = new FormData();
-      formData.append('file', selectedFile);
-      formData.append('title', meetingTitle || selectedFile.name);
-
-      setUploadProgress(30);
-      const res = await fetch('/api/meetings', {
+      // Step 1: Initialize meeting record
+      const initRes = await fetch('/api/meetings', {
         method: 'POST',
-        body: formData,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: meetingTitle || selectedFile.name,
+          fileName: selectedFile.name,
+          fileSize: selectedFile.size,
+          fileType: selectedFile.type,
+        }),
       });
 
-      if (!res.ok) {
-        const errorMsg = await getResponseError(res);
+      if (!initRes.ok) {
+        const errorMsg = await getResponseError(initRes);
         throw new Error(errorMsg);
       }
 
-      const data = await res.json();
-      const meetingId = data.meeting.id;
+      const { meeting } = await initRes.json();
+      const meetingId = meeting.id;
 
-      setUploadProgress(45);
-      setStatusMessage('Transcribing speech with local openai/whisper-small model...');
+      // Step 2: Upload file in 2MB chunks (well below Vercel's 4.5MB serverless limit)
+      const CHUNK_SIZE = 2 * 1024 * 1024; // 2 MB
+      const totalChunks = Math.ceil(selectedFile.size / CHUNK_SIZE);
+
+      for (let i = 0; i < totalChunks; i++) {
+        const start = i * CHUNK_SIZE;
+        const end = Math.min(selectedFile.size, start + CHUNK_SIZE);
+        const chunkBlob = selectedFile.slice(start, end);
+
+        const chunkFormData = new FormData();
+        chunkFormData.append('chunk', chunkBlob, selectedFile.name);
+        chunkFormData.append('chunkIndex', i.toString());
+        chunkFormData.append('totalChunks', totalChunks.toString());
+
+        const chunkRes = await fetch(`/api/meetings/${meetingId}/upload-chunk`, {
+          method: 'POST',
+          body: chunkFormData,
+        });
+
+        if (!chunkRes.ok) {
+          const errMsg = await getResponseError(chunkRes);
+          throw new Error(errMsg);
+        }
+
+        const progressPercent = Math.round(((i + 1) / totalChunks) * 45) + 5;
+        setUploadProgress(progressPercent);
+        setStatusMessage(`Uploading recording chunks (${i + 1}/${totalChunks})...`);
+      }
+
+      setUploadProgress(55);
+      setStatusMessage('Transcribing speech with AI (Whisper / Gemini)...');
 
       // Dynamic visual progress ticker
       const timer1 = setTimeout(() => {
-        setUploadProgress(70);
+        setUploadProgress(75);
         setStatusMessage('Identifying real speaker names & diarization...');
-      }, 10000);
+      }, 8000);
 
       const timer2 = setTimeout(() => {
-        setUploadProgress(85);
+        setUploadProgress(90);
         setStatusMessage('Extracting summaries, action items & decisions...');
-      }, 18000);
+      }, 16000);
 
-      // Trigger AI Pipeline
+      // Step 3: Trigger AI Pipeline
       const processRes = await fetch(`/api/meetings/${meetingId}/process`, {
         method: 'POST',
       });
