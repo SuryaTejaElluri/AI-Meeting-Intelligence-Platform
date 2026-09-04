@@ -4,6 +4,21 @@ import { useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { UploadCloud, FileAudio, FileVideo, CheckCircle2, AlertCircle, Loader2, Sparkles } from 'lucide-react';
 
+/** Safely extract an error message from any API response (JSON or plain text) */
+async function getResponseError(res: Response): Promise<string> {
+  const text = await res.text();
+  try {
+    const json = JSON.parse(text);
+    return json.error || json.message || `Server error (${res.status})`;
+  } catch {
+    // plain-text responses like "Request Entity Too Large" from Next.js
+    if (res.status === 413) return 'File is too large. Please upload a file smaller than 500 MB.';
+    if (res.status === 401) return 'You must be signed in to upload.';
+    if (res.status === 504) return 'Processing timed out. Try a shorter recording.';
+    return text || `Unexpected server error (${res.status})`;
+  }
+}
+
 export default function FileUploader() {
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -48,7 +63,12 @@ export default function FileUploader() {
     setErrorMessage('');
     const ext = file.name.substring(file.name.lastIndexOf('.')).toLowerCase();
     if (!supportedFormats.includes(ext)) {
-      setErrorMessage(`Unsupported file format. Please upload ${supportedFormats.join(', ')}`);
+      setErrorMessage(`Unsupported format. Please upload: ${supportedFormats.join(', ')}`);
+      return;
+    }
+    const maxSizeMB = 500;
+    if (file.size > maxSizeMB * 1024 * 1024) {
+      setErrorMessage(`File is too large (${(file.size / 1024 / 1024).toFixed(0)} MB). Maximum allowed size is ${maxSizeMB} MB.`);
       return;
     }
     setSelectedFile(file);
@@ -78,8 +98,8 @@ export default function FileUploader() {
       });
 
       if (!res.ok) {
-        const errorData = await res.json();
-        throw new Error(errorData.error || 'Upload failed');
+        const errorMsg = await getResponseError(res);
+        throw new Error(errorMsg);
       }
 
       const data = await res.json();
@@ -108,8 +128,8 @@ export default function FileUploader() {
       clearTimeout(timer2);
 
       if (!processRes.ok) {
-        const errJson = await processRes.json().catch(() => ({}));
-        throw new Error(errJson.error || 'AI processing failed');
+        const errMsg = await getResponseError(processRes);
+        throw new Error(errMsg);
       }
 
       setUploadProgress(100);

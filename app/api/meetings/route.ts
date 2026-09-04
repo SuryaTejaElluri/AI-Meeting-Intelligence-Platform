@@ -5,6 +5,7 @@ import { writeFile, mkdir } from 'fs/promises';
 import path from 'path';
 
 export const dynamic = 'force-dynamic';
+export const maxDuration = 300; // 5 minutes for large file uploads
 
 export async function GET() {
   try {
