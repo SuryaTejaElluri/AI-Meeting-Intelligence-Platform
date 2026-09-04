@@ -50,10 +50,18 @@ export async function POST(req: Request) {
     const bytes = await file.arrayBuffer();
     const buffer = Buffer.from(bytes);
 
-    const uploadsDir = path.join(process.cwd(), 'public', 'uploads');
-    await mkdir(uploadsDir, { recursive: true });
-
     const fileName = `${Date.now()}-${file.name.replace(/\s+/g, '_')}`;
+
+    // Determine upload directory: /tmp on Vercel serverless, public/uploads locally
+    const isVercel = process.env.VERCEL === '1' || Boolean(process.env.VERCEL_ENV);
+    const uploadsDir = isVercel
+      ? path.join(path.sep, 'tmp', 'uploads')
+      : path.join(process.cwd(), 'public', 'uploads');
+
+    try {
+      await mkdir(uploadsDir, { recursive: true });
+    } catch {}
+
     const filePath = path.join(uploadsDir, fileName);
     await writeFile(filePath, buffer);
 

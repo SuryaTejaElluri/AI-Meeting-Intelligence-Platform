@@ -18,11 +18,19 @@ export async function transcribeAudioWithWhisperSmall(
   fileType: string
 ): Promise<{ content: string; segments: TranscriptSegment[]; duration: number }> {
 
-  // Resolve the absolute file path from the public directory
-  const absolutePath = path.join(process.cwd(), 'public', fileUrl);
+  // Resolve the absolute file path (supports public/uploads locally & /tmp/uploads on Vercel)
+  const filename = path.basename(fileUrl);
+  let absolutePath = path.join(process.cwd(), 'public', 'uploads', filename);
 
   if (!fs.existsSync(absolutePath)) {
-    throw new Error(`Audio file not found at: ${absolutePath}. Please re-upload the file.`);
+    const tmpPath = path.join(path.sep, 'tmp', 'uploads', filename);
+    if (fs.existsSync(tmpPath)) {
+      absolutePath = tmpPath;
+    }
+  }
+
+  if (!fs.existsSync(absolutePath)) {
+    throw new Error(`Audio file not found at ${absolutePath}. Please re-upload the recording file.`);
   }
 
   const groqApiKey = process.env.GROQ_API_KEY?.trim();
