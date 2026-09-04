@@ -5,12 +5,21 @@ import { cookies } from 'next/headers';
 
 export const dynamic = 'force-dynamic';
 
+function getBaseUrl(req: Request) {
+  const host = req.headers.get('host');
+  const proto = req.headers.get('x-forwarded-proto') || (host && host.includes('localhost') ? 'http' : 'https');
+  if (host && !host.includes('localhost')) {
+    return `${proto}://${host}`;
+  }
+  return process.env.NEXT_PUBLIC_APP_URL || (host ? `${proto}://${host}` : 'http://localhost:3000');
+}
+
 export async function GET(req: Request) {
   const url = new URL(req.url);
   const code = url.searchParams.get('code');
   const error = url.searchParams.get('error');
 
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+  const baseUrl = getBaseUrl(req);
 
   if (error || !code) {
     console.error('[Google OAuth Error]:', error || 'No auth code provided');
@@ -20,7 +29,9 @@ export async function GET(req: Request) {
   try {
     const clientId = process.env.GOOGLE_CLIENT_ID;
     const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
-    const redirectUri = process.env.GOOGLE_CALLBACK_URL || `${baseUrl}/api/auth/google/callback`;
+    const redirectUri = (process.env.GOOGLE_CALLBACK_URL && !process.env.GOOGLE_CALLBACK_URL.includes('localhost'))
+      ? process.env.GOOGLE_CALLBACK_URL
+      : `${baseUrl}/api/auth/google/callback`;
 
     // 1. Exchange code for tokens
     const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
