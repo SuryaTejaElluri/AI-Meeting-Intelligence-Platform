@@ -5,11 +5,10 @@ import path from 'path';
 import fs from 'fs';
 
 /**
- * Transcription Pipeline:
- *   1. PRIMARY: openai/whisper-small via local Python server (FREE, offline)
- *   2. FALLBACK: Gemini 3.6 Flash multimodal audio API
- * 
- * Whisper Small server runs at http://localhost:8100/transcribe
+ * Speech-to-Text Pipeline:
+ *   1. PRIMARY: Groq Hosted Whisper API (whisper-large-v3-turbo) — FREE, 0.5s execution, no server needed
+ *   2. SECONDARY: Local Python Whisper Small Server (http://localhost:8100) — FREE, offline
+ *   3. TERTIARY: Gemini 3.6 Flash multimodal audio API
  */
 
 const WHISPER_SERVER_URL = process.env.WHISPER_SERVER_URL || 'http://localhost:8100';
@@ -26,14 +25,75 @@ export async function transcribeAudioWithWhisperSmall(
     throw new Error(`Audio file not found at: ${absolutePath}. Please re-upload the file.`);
   }
 
-  // ──── PRIMARY: openai/whisper-small via Python server (FREE) ────
-  try {
-    console.log(`[Whisper Small] Sending audio to local Whisper server at ${WHISPER_SERVER_URL}...`);
+  const groqApiKey = process.env.GROQ_API_KEY?.trim();
+  const groqModel = process.env.GROQ_WHISPER_MODEL || 'whisper-large-v3-turbo';
 
-    // Check if Whisper server is running
-    const healthCheck = await fetch(`${WHISPER_SERVER_URL}/health`, { signal: AbortSignal.timeout(3000) });
+  // ──── 1. PRIMARY: Groq Free Hosted Whisper API ────
+  if (groqApiKey) {
+    try {
+      console.log(`[Groq Whisper STT] Transcribing audio with '${groqModel}' via Groq LPU Cloud...`);
+      const audioBuffer = await readFile(absolutePath);
+      const filename = path.basename(absolutePath);
+      const mimeType = getMimeType(absolutePath, fileType);
+
+      const blob = new Blob([audioBuffer], { type: mimeType });
+      const formData = new FormData();
+      formData.append('file', blob, filename);
+      formData.append('model', groqModel);
+      formData.append('response_format', 'verbose_json');
+      formData.append('temperature', '0.0');
+
+      const startTime = Date.now();
+      const response = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${groqApiKey}`,
+        },
+        body: formData,
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        const elapsed = ((Date.now() - startTime) / 1000).toFixed(2);
+
+        if (data.segments && Array.isArray(data.segments) && data.segments.length > 0) {
+          const segments: TranscriptSegment[] = data.segments.map((seg: any) => ({
+            start: Math.round((seg.start || 0) * 10) / 10,
+            end: Math.round((seg.end || 0) * 10) / 10,
+            speaker: seg.speaker || 'Speaker 1',
+            text: (seg.text || '').trim(),
+          }));
+
+          const content = data.text || segments.map(s => `[${s.speaker}]: ${s.text}`).join('\n');
+          const duration = Math.round(data.duration || segments[segments.length - 1].end || 60);
+
+          console.log(`[Groq Whisper STT] ✅ Transcribed ${segments.length} segments (${duration}s audio) in ${elapsed}s!`);
+
+          return { content, segments, duration };
+        } else if (data.text) {
+          const content = data.text;
+          const segments: TranscriptSegment[] = [{
+            start: 0,
+            end: Math.round(data.duration || 60),
+            speaker: 'Speaker 1',
+            text: data.text.trim(),
+          }];
+          return { content, segments, duration: Math.round(data.duration || 60) };
+        }
+      } else {
+        const errText = await response.text();
+        console.warn(`[Groq Whisper STT] Groq returned ${response.status}: ${errText}`);
+      }
+    } catch (err: any) {
+      console.warn(`[Groq Whisper STT] Groq transcription warning: ${err?.message || err}`);
+    }
+  }
+
+  // ──── 2. SECONDARY: Local Python Whisper Small Server ────
+  try {
+    console.log(`[Whisper Small Local] Checking local server at ${WHISPER_SERVER_URL}...`);
+    const healthCheck = await fetch(`${WHISPER_SERVER_URL}/health`, { signal: AbortSignal.timeout(2000) });
     if (healthCheck.ok) {
-      // Read the audio file and send as multipart form data
       const audioBuffer = await readFile(absolutePath);
       const blob = new Blob([audioBuffer], { type: fileType || 'audio/wav' });
       
@@ -47,7 +107,6 @@ export async function transcribeAudioWithWhisperSmall(
 
       if (response.ok) {
         const data = await response.json();
-
         if (data.segments && Array.isArray(data.segments) && data.segments.length > 0) {
           const segments: TranscriptSegment[] = data.segments.map((seg: any) => ({
             start: seg.start,
@@ -56,25 +115,20 @@ export async function transcribeAudioWithWhisperSmall(
             text: seg.text,
           }));
 
-          console.log(`[Whisper Small] ✅ Transcribed ${segments.length} segments (${data.duration}s) using openai/whisper-small in ${data.processingTime}s`);
-
+          console.log(`[Whisper Small Local] ✅ Transcribed ${segments.length} segments using local whisper-small.`);
           return {
             content: data.content || segments.map(s => `[${s.speaker}]: ${s.text}`).join('\n'),
             segments,
             duration: data.duration || segments[segments.length - 1].end,
           };
         }
-      } else {
-        const errText = await response.text();
-        console.warn(`[Whisper Small] Server returned ${response.status}: ${errText}`);
       }
     }
   } catch (err: any) {
-    console.warn(`[Whisper Small] Local server not available: ${err.message}`);
-    console.warn('[Whisper Small] Falling back to Gemini for transcription...');
+    console.warn(`[Whisper Small Local] Local server unreachable: ${err.message}`);
   }
 
-  // ──── FALLBACK: Gemini Multimodal Audio Transcription ────
+  // ──── 3. TERTIARY: Gemini Multimodal Audio Transcription ────
   const geminiApiKey = process.env.GEMINI_API_KEY?.trim();
   const modelName = process.env.GEMINI_MODEL || 'gemini-3.6-flash';
 
@@ -92,7 +146,7 @@ export async function transcribeAudioWithWhisperSmall(
       const transcriptionPrompt = `You are a professional meeting transcription engine.
 Transcribe the provided audio recording precisely and completely. Do NOT summarize. Do NOT skip any content.
 
-Output ONLY a valid JSON object with no markdown formatting, no explanation, no \`\`\`json blocks. Just the raw JSON:
+Output ONLY a valid JSON object with no markdown formatting:
 {
   "segments": [
     {
@@ -102,14 +156,7 @@ Output ONLY a valid JSON object with no markdown formatting, no explanation, no 
       "text": "Exact words spoken in this segment"
     }
   ]
-}
-
-Rules:
-- Transcribe ALL speech content from start to end. Every word matters.
-- Identify different speakers where possible (use names if mentioned, otherwise Speaker 1, Speaker 2, etc.)
-- Create segments of 10-30 seconds each with accurate start/end timestamps in seconds
-- Ensure timestamps are sequential and non-overlapping
-- Do NOT add any commentary, summary, or analysis. Only transcribe what was said.`;
+}`;
 
       const result = await model.generateContent([
         { inlineData: { mimeType, data: audioBase64 } },
@@ -131,10 +178,10 @@ Rules:
     }
   }
 
-  // ──── NO FALLBACK — throw error ────
+  // ──── NO FALLBACK AVAILABLE ────
   throw new Error(
-    'Transcription failed: Neither the Whisper Small server (http://localhost:8100) nor the Gemini API could process the audio. ' +
-    'Start the Whisper server with: cd whisper-server && python server.py'
+    'Transcription failed: Could not process the audio recording. ' +
+    'Please verify your GROQ_API_KEY or GEMINI_API_KEY in .env.'
   );
 }
 
